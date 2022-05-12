@@ -1,6 +1,9 @@
 use std::fmt::{Display, Formatter, Result as FmtResult};
 
-#[derive(Debug, std::cmp::PartialEq)]
+// NOTE(Wojciech): You probably know this but this is not useful for any kind of debugging. If an error happens you
+// won't know why and probably won't be able to fix it. There's two options here: include the underlying error on the
+// error structure itself or use a library e.g. anyhow and/or thiserror to get nice errors.
+#[derive(Debug, PartialEq)]
 pub enum ScrapeError {
     InvalidResponse,
     InvalidURI,

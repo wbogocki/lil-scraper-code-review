@@ -3,12 +3,13 @@ use clap::Parser;
 use error::ScrapeError;
 use hyper::Client;
 use hyper_tls::HttpsConnector;
+use log::*;
 use regex::Regex;
 use scraper::Scraper;
-use std::io::{self, BufRead};
+use std::io::BufRead;
 use std::process;
 use std::time::Instant;
-use tokio::sync::mpsc::{self, Receiver, Sender};
+use tokio::sync::mpsc;
 
 use crate::printer::{Printer, TablePrinter, TextPrinter};
 
@@ -16,12 +17,8 @@ mod error;
 mod printer;
 mod scraper;
 
-#[macro_use]
-extern crate log;
-
-#[cfg(test)]
-#[macro_use]
-extern crate yup_hyper_mock as hyper_mock;
+// NOTE(Wojciech): #[macro_use] extern crate xxx is unnecessary since I think Rust 2019, you can simply use
+// <path_to_the_macro>; e.g. use log::info; to import the info macro.
 
 const CHANNEL_BUFFER: usize = 500;
 
@@ -50,14 +47,15 @@ async fn main() {
     let regex =
         Regex::new(&args.pattern).expect("Error: pattern must be a valid regular expression!");
 
-    let stdin = io::stdin();
+    let stdin = std::io::stdin();
     if atty::is(Stream::Stdin) {
         eprintln!("Error: stdin not redirected");
         process::exit(exitcode::IOERR);
     }
 
+    // NOTE(Wojciech): Good use of a bounded channel to throttle scraping if you can scrape faster than you're able to save.
     type ChannelData = (String, Result<Option<String>, ScrapeError>);
-    let (tx, mut rx): (Sender<ChannelData>, Receiver<ChannelData>) = mpsc::channel(CHANNEL_BUFFER);
+    let (tx, mut rx) = mpsc::channel::<ChannelData>(CHANNEL_BUFFER);
 
     let client = Client::builder().build::<_, hyper::Body>(HttpsConnector::new());
 
@@ -75,6 +73,10 @@ async fn main() {
 
                 scraper.scrape(uri).await
             };
+            // NOTE(Wojciech): So... this could be wrong because the await above could switch to other tasks while
+            // downloading the website and then we don't know when it'll reschedule us so the end result doesn't
+            // represent how long we've worked on this request rather how long we've worked on it plus how long we took
+            // to get rescheduled.
             info!("Completed scrape for {} in {:?}", line, now.elapsed());
             tx.send((line.clone(), result))
                 .await
